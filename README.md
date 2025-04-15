@@ -207,6 +207,37 @@ git push origin main
 ```
 salloc --mem=100G --time=6:00:00 --cpus-per-task=32 
 ```
+### Important issues here, cancer samples have reads 150 bp long, whereas healthy samples are 300 bp
+
+-We are running dada separately.
+```
+ awk 'NR>2 && $3==0 && $4==0
+ && $5==0 && $6==0 && $7==0 && $8==0 && $9==0 {print $1}' metadata.tsv > accessions_150.txt
+
+awk 'NR>2 && !($3==0 && $4=
+=0 && $5==0 && $6==0 && $7==0 && $8==0 && $9==0) {print $1}' metadata.tsv > accessions_300.txt
+```
+- Now convert to qiime format
+```
+echo -e "#SampleID" > samples_150.tsv
+cat accessions_150.txt >> samples_150.tsv
+
+echo -e "#SampleID" > samples_300.tsv
+cat accessions_300.txt >> samples_300.tsv
+```
+- Split reads
+```
+qiime demux filter-samples \
+  --i-demux reads.qza \
+  --m-metadata-file samples_150.tsv \
+  --o-filtered-demux reads_150.qza
+
+qiime demux filter-samples \
+  --i-demux reads.qza \
+  --m-metadata-file samples_300.tsv \
+  --o-filtered-demux reads_300.qza
+```
+
 2. Run DADA2 to denoise and generate ASVs:
 
 ```
@@ -228,17 +259,30 @@ vi dada.slurm
 module load anaconda3
 conda activate qiime2-amplicon-2024.2
 
-# Run DADA2 denoising
+# Run DADA2 denoising on cancer reads first
 qiime dada2 denoise-paired \
-    --i-demultiplexed-seqs reads_qza/reads.qza \
-    --p-trim-left-f 0 \
-    --p-trim-left-r 0 \
-    --p-trunc-len-f 250 \
-    --p-trunc-len-r 250 \
-    --p-n-threads 32 \
-    --o-table feature-table.qza \
-    --o-representative-sequences rep-seqs.qza \
-    --o-denoising-stats denoising-stats.qza
+  --i-demultiplexed-seqs reads_150.qza \
+  --p-trim-left-f 0 \
+  --p-trim-left-r 0 \
+  --p-trunc-len-f 140 \
+  --p-trunc-len-r 140 \
+  --p-n-threads 32 \
+  --o-table table_150.qza \
+  --o-representative-sequences repseqs_150.qza \
+  --o-denoising-stats stats_150.qza
+
+# Now run DADA2 denoising on healthy reads
+qiime dada2 denoise-paired \
+  --i-demultiplexed-seqs reads_300.qza \
+  --p-trim-left-f 0 \
+  --p-trim-left-r 0 \
+  --p-trunc-len-f 280 \
+  --p-trunc-len-r 220 \
+  --p-n-threads 32 \
+  --o-table table_300.qza \
+  --o-representative-sequences repseqs_300.qza \
+  --o-denoising-stats stats_300.qza
+
 ```
 - Exit : esc :wq
 - Run the script
@@ -247,22 +291,38 @@ qiime dada2 denoise-paired \
 sbatch dada.slurm
 ```
 
-```bash
-qiime dada2 denoise-paired \
-    --i-demultiplexed-seqs reads_qza/reads.qza \
-    --p-trim-left-f 0 --p-trim-left-r 0 \
-    --p-trunc-len-f 250 --p-trunc-len-r 250 \
-      --p-n-threads 32 \
-    --o-table feature-table.qza \
-    --o-representative-sequences rep-seqs.qza \
-    --o-denoising-stats denoising-stats.qza
-```
+
 2. Summarize the feature table:
 ```bash
 qiime feature-table summarize \
-    --i-table feature-table.qza \
-    --o-visualization feature-table.qzv \
-    --m-sample-metadata-file metadata.tsv
+  --i-table table_150.qza \
+  --o-visualization table_150.qzv
+
+qiime feature-table summarize \
+  --i-table table_300.qza \
+  --o-visualization table_300.qzv
+
+qiime metadata tabulate \
+  --m-input-file stats_150.qza \
+  --o-visualization stats_150.qzv
+
+qiime metadata tabulate \
+  --m-input-file stats_300.qza \
+  --o-visualization stats_300.qzv
+```
+
+
+3. Merge groups
+```
+qiime feature-table merge \
+  --i-tables table_150.qza \
+  --i-tables table_300.qza \
+  --o-merged-table table_merged.qza
+
+qiime feature-table merge-seqs \
+  --i-data repseqs_150.qza \
+  --i-data repseqs_300.qza \
+  --o-merged-data repseqs_merged.qza
 ```
 ## **Step 5: Taxonomic Assignment**
 1. Assign taxonomy using a pre-trained classifier (e.g., SILVA):
@@ -272,7 +332,7 @@ wget https://data.qiime2.org/2023.9/common/silva-138-99-nb-classifier.qza
 
 qiime feature-classifier classify-sklearn \
    --i-classifier silva-138-99-nb-classifier.qza \
-   --i-reads rep-seqs.qza \
+   --i-reads repseqs_merged.qza \
    --p-n-jobs 8 \
    --output-dir taxa
 ```
@@ -281,7 +341,7 @@ qiime feature-classifier classify-sklearn \
 1. Filter out rare ASVs
 ```         
 qiime feature-table filter-features \
-  --i-table feature-table.qza \
+  --i-table table_merged.qza \
   --p-min-frequency 2 \
   --p-min-samples 1 \
   --o-filtered-table dada_table_filt.qza
@@ -327,7 +387,7 @@ qiime feature-table summarize \
 2. Visualize taxonomic composition:
 ```bash
 qiime taxa barplot \
-    --i-table feature-table.qza \
+    --i-table table_merged.qza \
     --i-taxonomy taxa/classification.qza \
     --m-metadata-file metadata.tsv \
     --o-visualization taxa-bar-plots.qzv
