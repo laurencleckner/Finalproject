@@ -371,7 +371,7 @@ cp dada_table_filt_contam.qza dada_table_final.qza
 5. Produce final table summary
 ```         
 qiime feature-table filter-seqs \
-  --i-data rep-seqs.qza \
+  --i-data repseqs_merged.qza \
   --i-table dada_table_final.qza  \
   --o-filtered-data rep_seqs_final.qza
 ```
