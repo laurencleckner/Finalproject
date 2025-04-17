@@ -388,7 +388,7 @@ qiime feature-table summarize \
 ```bash
 qiime taxa barplot \
     --i-table table_merged.qza \
-    --i-taxonomy taxa/classification.qza \
+    --i-taxonomy merged_classification.qza \
     --m-metadata-file metadata.tsv \
     --o-visualization taxa-bar-plots.qzv
 ```
