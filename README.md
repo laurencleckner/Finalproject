@@ -351,7 +351,7 @@ qiime feature-table filter-features \
 ```         
 qiime taxa filter-table \
   --i-table dada_table_filt.qza \
-  --i-taxonomy taxa/classification.qza \
+  --i-taxonomy silva-138-99-nb-classifier.qza \
   --p-include p__ \
   --p-exclude mitochondria,chloroplast \
   --o-filtered-table dada_table_filt_contam.qza
